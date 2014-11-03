@@ -1,0 +1,5 @@
+To compile cstagger.so:
+
+python setup.py build_ext --inplace
+
+(if cstagger.c is missing or cstagger.pyx is changed, you will need cython)
