@@ -1,6 +1,5 @@
 import os
 import sys
-sys.setrecursionlimit(10000)
 import datetime
 
 import numpy as np
@@ -15,9 +14,11 @@ from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as Navigatio
 from PyQt4 import QtGui
 from PyQt4 import Qt
 
+
 from matplotlib import cm
 from scipy.io.idl import readsav
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib.image import NonUniformImage
 
 first_file_name  = "big_nope"
 
@@ -87,6 +88,14 @@ class Window(QtGui.QDialog):
         self.slider.valueChanged.connect(self.plot)
 
         # ----------------------------------------------
+        
+        self.view_combo = QtGui.QComboBox(self)
+        self.view_combo.activated[str].connect(self.changeView)
+        self.view_combo.addItem('X-Y')
+        self.view_combo.addItem('X-Z')
+        self.view_combo.addItem('Y-Z')
+        self.view = 'X-Y'
+        self.slide_dimension = 2 # will slide by default though z
 
         self.combo = QtGui.QComboBox(self)
         self.combo.activated[str].connect(self.comboActivated)
@@ -130,6 +139,7 @@ class Window(QtGui.QDialog):
         self.hbox.addWidget(self.back_button)
         self.hbox.addWidget(self.next_button)
         self.hbox.addWidget(self.combo)
+        self.hbox.addWidget(self.view_combo)
 
         # set the layout
         layout = QtGui.QVBoxLayout()
@@ -185,6 +195,12 @@ class Window(QtGui.QDialog):
         if not self.check_aux.isChecked():
             for tag in self.b.auxvars:
                 self.combo.addItem(tag)
+    
+    def changeView(self, text):
+        self.view = text
+        self.get_data()
+        self.plot()
+        print 'View changed to: ', self.view
 
     def comboActivated(self, text):
         self.tag = text
@@ -198,11 +214,17 @@ class Window(QtGui.QDialog):
 
     def get_data(self):
         self.data = self.b.getvar(self.tag)
+        if self.view == 'X-Y':
+            self.slide_dimension = 2
+        elif self.view == 'X-Z':
+            self.slide_dimension = 1
+        elif self.view == 'Y-Z':
+            self.slide_dimension =0
         self.slider.setMinimum(0)
-        self.slider.setMaximum(self.data.shape[2]-1)
+        self.slider.setMaximum(self.data.shape[self.slide_dimension]-1)
 
-        if self.slider.value() >= self.data.shape[2]:
-            self.slider.setValue(self.data.shape[2]-1)
+        if self.slider.value() >= self.data.shape[self.slide_dimension]:
+            self.slider.setValue(self.data.shape[self.slide_dimension]-1)
 
         self.setCombo()
 
@@ -214,66 +236,103 @@ class Window(QtGui.QDialog):
         self.toolbar.pan()
 
     def plot(self):
-			plt.clf()
-			image = self.data[:,:,self.slider.value()]
-			image = np.fliplr(image)
-			image = np.rot90(image,k=2)
-			
-			label = "Value"
-			color = cm.get_cmap('jet')
-			
-			ax = self.figure.add_subplot(111)
-			ax.set_title("[%s] %s (Snap: %s) for z = %f \n[time: %s]" % (self.tag, self.base_name, self.snap_n, self.b.z[self.slider.value()],str(datetime.timedelta(seconds=self.param['t']*self.param['u_t']))))
-			ax.set_ylabel('y-direction')
-			ax.set_xlabel('x-direction')
-			
-			ax.xaxis.set_major_locator(ticker.MultipleLocator(int(64)))
-			ax.yaxis.set_major_locator(ticker.MultipleLocator(int(64)))
-			
-			extension = [0, self.param['mx'], 0, self.param['my']]
-			
-			if self.check_si.isChecked():
-				ax.set_ylabel('y-direction [Mm]')
-				ax.set_xlabel('x-direction [Mm]')
-				
-				ax.xaxis.set_major_locator(ticker.MultipleLocator(int(4)))
-				ax.yaxis.set_major_locator(ticker.MultipleLocator(int(4)))
-				
-				extension = [0., self.param['dx']*self.param['mx'], 0.0, self.param['dy']*self.param['my']]
-				if self.tag == 'r':
-					image = image * self.param['u_r']
-					unit_label = "[g/cm3]"
-					label = "Value %s" % unit_label
-				elif (self.tag == 'bx' or self.tag == 'by' or self.tag == 'bz'):
-					image = image * self.param['u_b']
-					unit_label = "[G]"
-					label = "Value %s" % unit_label
-				elif (self.tag == 'px' or self.tag == 'py' or self.tag == 'pz'):
-					image = image * self.param['u_p']
-					unit_label = "[Ba]"
-					label = "Value %s" % unit_label
-				elif self.tag == 'e':
-					image = image * self.param['u_e']
-					unit_label = "[erg]"
-					label = "Value %s" % unit_label
-					
-			if self.check_abs.isChecked():
-				image = np.absolute(image)
-				label = "ABS( %s )" % label
-				
-			if self.check_log.isChecked():
-				image = np.log10(image)
-				label = "Log10( %s )" % label
-				
-			if self.check_bw.isChecked():
-				color = cm.get_cmap('gist_yarg')
-			
-			im = ax.imshow(image, interpolation='none', origin='lower', cmap=color, extent=extension)
+        plt.clf()
+        ax = self.figure.add_subplot(111)
+        slice_str = '[?]'
+        # extension = []
+        if self.view == 'X-Y':
+            image = self.data[:,:,self.slider.value()]
+            slice_str = 'z = %f ' % self.b.z[self.slider.value()]
+            ax.set_ylabel('y-direction')
+            ax.set_xlabel('x-direction')
+            # extension = [0, self.param['mx'], 0, self.param['my']]
+        elif self.view == 'X-Z':
+            image = self.data[:,self.slider.value(),:]
+            slice_str = 'y = %f ' % self.b.y[self.slider.value()]
+            ax.set_ylabel('z-direction')
+            ax.set_xlabel('x-direction')
+            # extension = [0, self.param['mx'], 0, self.param['mz']]
+        elif self.view == 'Y-Z':
+            image = self.data[self.slider.value(),:,:]
+            slice_str = 'x = %f ' % self.b.x[self.slider.value()]
+            ax.set_ylabel('z-direction')
+            ax.set_xlabel('y-direction')
+            # extension = [0, self.param['my'], 0, self.param['mz']]
+        # image = np.fliplr(image)
+        # image = np.rot90(image,k=3)
+        
+        label = "Value"
+        color = cm.get_cmap('jet')
+        
+        ax.set_title("[%s] %s (Snap: %s) for %s \n[time: %s]" % (self.tag, self.base_name, self.snap_n, slice_str, str(datetime.timedelta(seconds=self.param['t']*self.param['u_t']))))
+        # ax.xaxis.set_major_locator(ticker.MultipleLocator(int(64)))
+        # ax.yaxis.set_major_locator(ticker.MultipleLocator(int(64)))
+        
+        if self.check_si.isChecked():
+            
+            if self.tag == 'r':
+                image = image * self.param['u_r']
+                unit_label = "[g/cm3]"
+                label = "Value %s" % unit_label
+            elif (self.tag == 'bx' or self.tag == 'by' or self.tag == 'bz'):
+                image = image * self.param['u_b']
+                unit_label = "[G]"
+                label = "Value %s" % unit_label
+            elif (self.tag == 'px' or self.tag == 'py' or self.tag == 'pz'):
+                image = image * self.param['u_p']
+                unit_label = "[Ba]"
+                label = "Value %s" % unit_label
+            elif self.tag == 'e':
+                image = image * self.param['u_e']
+                unit_label = "[erg]"
+                label = "Value %s" % unit_label
+
+        if self.check_abs.isChecked():
+            image = np.absolute(image)
+            label = "ABS( %s )" % label
+        
+        if self.check_log.isChecked():
+            image = np.log10(image)
+            label = "Log10( %s )" % label
+        if self.check_bw.isChecked():
+            color = cm.get_cmap('gist_yarg')
+            
+        if self.view == 'X-Y':
+            ax.set_ylabel('y-direction [Mm]')
+            ax.set_xlabel('x-direction [Mm]')
+            im = NonUniformImage(ax, interpolation='bilinear', extent=(self.b.x.min(),self.b.x.max(),self.b.y.min(),self.b.y.max()), cmap=color)
+            im.set_data(self.b.x, self.b.y, np.fliplr(zip(*image[::-1])))
+            ax.images.append(im)
+            ax.set_xlim(self.b.x.min(),self.b.x.max())
+            ax.set_ylim(self.b.y.min(),self.b.y.max())
+            ax.xaxis.set_major_locator(ticker.MultipleLocator(int(4)))
+            ax.yaxis.set_major_locator(ticker.MultipleLocator(int(4)))
+        elif self.view == 'X-Z':
+            ax.set_ylabel('z-direction [Mm]')
+            ax.set_xlabel('x-direction [Mm]')
+            im = NonUniformImage(ax, interpolation='bilinear', extent=(self.b.x.min(),self.b.x.max(),self.b.z.min(),self.b.z.max()), cmap=color)
+            im.set_data(self.b.x, self.b.z[::-1], np.flipud(np.fliplr(zip(*image[::-1]))))
+            ax.images.append(im)
+            ax.set_xlim(self.b.x.min(),self.b.x.max())
+            ax.set_ylim(self.b.z.max(),self.b.z.min())
+            ax.xaxis.set_major_locator(ticker.MultipleLocator(int(4)))
+            ax.yaxis.set_major_locator(ticker.MultipleLocator(int(2)))
+        elif self.view == 'Y-Z':
+            ax.set_ylabel('z-direction [Mm]')
+            ax.set_xlabel('y-direction [Mm]')
+            im = NonUniformImage(ax, interpolation='bilinear', extent=(self.b.y.min(),self.b.y.max(),self.b.z.min(),self.b.z.max()), cmap=color)
+            im.set_data(self.b.y, self.b.z[::-1], np.flipud(np.fliplr(zip(*image[::-1]))))
+            ax.images.append(im)
+            ax.set_xlim(self.b.y.min(),self.b.y.max())
+            ax.set_ylim(self.b.z.max(),self.b.z.min())
+            ax.xaxis.set_major_locator(ticker.MultipleLocator(int(4)))
+            ax.yaxis.set_major_locator(ticker.MultipleLocator(int(2)))
+        # im = ax.imshow(image, interpolation='none', origin='lower', cmap=color, extent=extension)
         # ax.text(0.025, 0.025, (r'$\langle  B_{z}  \rangle = %2.2e$'+'\n'+r'$\langle |B_{z}| \rangle = %2.2e$') % (np.average(img),np.average(np.absolute(img))), ha='left', va='bottom', transform=ax.transAxes)
-			divider = make_axes_locatable(ax)
-			cax = divider.append_axes("right", size="5%", pad=0.05)
-			plt.colorbar(im, cax=cax,label=label)
-			self.canvas.draw()
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plt.colorbar(im, cax=cax,label=label)
+        self.canvas.draw()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
