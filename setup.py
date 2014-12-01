@@ -9,7 +9,9 @@ from setuptools import setup
 
 APP = ['bq_t4_look.py']
 DATA_FILES = ['bq_t4_sys']
-OPTIONS = {'argv_emulation': True, 'iconfile':'bq_t4_sys/Viking.icns'}
+OPTIONS = {'argv_emulation': True, 'iconfile':'bq_t4_sys/Viking.icns','includes': ['sip', 'PyQt4', 'PyQt4.QtCore', 'PyQt4.QtGui','md5','numpy','matplotlib','scipy','hashlib.md5']}
+            # 'excludes': ['PyQt4.QtDesigner', 'PyQt4.QtNetwork', 'PyQt4.QtOpenGL', 'PyQt4.QtScript', 'PyQt4.QtSql', 'PyQt4.QtTest', 'PyQt4.QtWebKit', 'PyQt4.QtXml', 'PyQt4.phonon']}
+# OPTIONS = {'argv_emulation': True, 'iconfile':'bq_t4_sys/Viking.icns'}
 
 setup(
     app=APP,

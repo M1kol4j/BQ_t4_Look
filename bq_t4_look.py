@@ -1,6 +1,16 @@
+#!/usr/bin/env python
+
+"""
+bq_t4_look.py
+
+Created by Mikolaj Szydlarski on 2014-04-29.
+Copyright (c) 2014, ITA UiO - All rights reserved.
+"""
+
 import os
 import sys
 import datetime
+import getopt
 
 import numpy as np
 
@@ -14,13 +24,10 @@ from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as Navigatio
 from PyQt4 import QtGui
 from PyQt4 import Qt
 
-
 from matplotlib import cm
 from scipy.io.idl import readsav
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.image import NonUniformImage
-
-first_file_name  = "big_nope"
 
 plt.style.use('dark_background')
 sys.path.append("./bq_t4_sys/")
@@ -28,20 +35,38 @@ sys.path.append("./bq_t4_sys/cstagger/")
 
 import bifrost
 
-def process_file_name(file_name):
 
+first_file_name  = "no_file"
+first_slice      = -1
+first_depth      = -1000.0
+help_message     = '''
+
+    ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+    :: Python/Qt4 based quick look tool app for Bifrost cubes ::
+    ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+    
+     You can setup some parameters from command line:
+
+     -f / --input  - point to the snap file
+     -s / --slice  - jump directly to cube[:,:,slice]
+     -z / --depth  - finds a slice to the corresponding depth 
+                     val provided in real [mM] coordinates
+     -h / --help   - print this help msg
+    
+    ............................................................
+
+'''
+
+def process_file_name(file_name):
    a = os.path.splitext(file_name)[0]
    a = a.split("/")[:-1]
    a.append(" ")
    where_str = "/".join(a)
-
    b = os.path.splitext(file_name)[0]
    b = b.split("/")[-1]
    b = b.split("_")
-
-   base_name = b[0]
-   snap_n    = b[1]
-
+   base_name = "_".join(b[0:-1])
+   snap_n    = b[-1]
    return where_str.strip(), base_name.strip(), snap_n.strip()
 
 def z2indx(z_vec, z):
@@ -151,22 +176,44 @@ class Window(QtGui.QDialog):
 
         # actual data stuff
         self.fpath = first_file_name
-        # self.param = get_bifrost_param(first_file_name,0)
-        # self.b, self.base_name, self.snap_n = get_bifrost_obj(self.fpath,0)
 
         # self.data = np.einsum('ijk->kji', self.data)
 
         self.tag = 'r'
-        # self.get_data()
+
+        if (first_file_name != "no_file"):
+            self.param = get_bifrost_param(self.fpath,0)
+            self.b, self.base_name, self.snap_n = get_bifrost_obj(self.fpath,0, self.check_aux.isChecked())
+            self.data = self.b.getvar(self.tag)
+            self.slide_dimension = 2
+            self.slider.setMinimum(0)
+            self.slider.setMaximum(self.data.shape[self.slide_dimension]-1)
+
+            if (first_slice != -1):
+                self.slider.setValue(first_slice)
+
+            if (first_depth != -1000.0):
+                self.slider.setValue(np.argmax( self.b.z >= first_depth ))
+
+            if self.slider.value() >= self.data.shape[self.slide_dimension]:
+                self.slider.setValue(self.data.shape[self.slide_dimension]-1)
+            elif self.slider.value() < 0:
+                self.slider.setValue(0)
+
+            self.setCombo()
+            self.plot()
+        else:
+            print "\t[!] Drag & Drop a snap file to plot its content"
+
 
     def keyPressEvent(self, event):
         
         key = event.key
 
-        if key == Qt.Qt.Key_T:
-            self.toolbar.show()
-        elif key == Qt.Qt.Key_H:
-            self.toolbar.hide()
+        if key == Qt.Qt.Key_Right:
+            self.slider.setValue(self.slider.value() + 1)
+        elif key == Qt.Qt.Key_Left:
+            self.slider.setValue(self.slider.value() - 1)
 
     def goBack(self):
         self.param = get_bifrost_param(self.fpath,-1)
@@ -219,12 +266,15 @@ class Window(QtGui.QDialog):
         elif self.view == 'X-Z':
             self.slide_dimension = 1
         elif self.view == 'Y-Z':
-            self.slide_dimension =0
+            self.slide_dimension = 0
+
         self.slider.setMinimum(0)
         self.slider.setMaximum(self.data.shape[self.slide_dimension]-1)
 
         if self.slider.value() >= self.data.shape[self.slide_dimension]:
             self.slider.setValue(self.data.shape[self.slide_dimension]-1)
+        elif self.slider.value() < 0:
+            self.slider.setValue(0)
 
         self.setCombo()
 
@@ -295,7 +345,8 @@ class Window(QtGui.QDialog):
             image = np.log10(image)
             label = "Log10( %s )" % label
         if self.check_bw.isChecked():
-            color = cm.get_cmap('gist_yarg')
+            # color = cm.get_cmap('gist_yarg')
+            color = cm.get_cmap('Greys_r') # Mats favorite color palette 
             
         if self.view == 'X-Y':
             ax.set_ylabel('y-direction [Mm]')
@@ -350,10 +401,37 @@ class Window(QtGui.QDialog):
             self.get_data()
             self.plot()
 
-if __name__ == '__main__':
+def main(argv=None):
+
+    global first_file_name
+    global first_slice
+    global first_depth
+    
+    if argv is None:
+        argv = sys.argv
+
+    opts, args = getopt.getopt(argv[1:], "hi:s:z:", ["help","input=","slice=","depth="])
+        
+    # option processing
+    for option, value in opts:
+        if option in ("-h", "--help"):
+            print help_message
+            return 0
+        if option in ("-i", "--input"):
+            first_file_name = value
+            print '[Input file] : ', first_file_name
+        if option in ("-s", "--slice"):
+            first_slice = int(value)
+        if option in ("-z", "--depth"):
+            first_depth = float(value)
+    print help_message
+
     app = QtGui.QApplication(sys.argv)
     main = Window()
     main.setWindowTitle('Bifrost Q(t4)uick Look App')
     main.show()
 
     sys.exit(app.exec_())
+
+if __name__ == '__main__':
+    sys.exit(main())
