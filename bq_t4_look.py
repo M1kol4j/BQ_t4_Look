@@ -47,7 +47,7 @@ help_message     = '''
     
      You can setup some parameters from command line:
 
-     -f / --input  - point to the snap file
+     -i / --input  - point to the snap file
      -s / --slice  - jump directly to cube[:,:,slice]
      -z / --depth  - finds a slice to the corresponding depth 
                      val provided in real [mM] coordinates
